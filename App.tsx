@@ -1,118 +1,161 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   SafeAreaView,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
-  useColorScheme,
+  TouchableOpacity,
   View,
+  Platform,
+  PermissionsAndroid,
+  Permission,
 } from 'react-native';
+import {BleDevice} from './src/types/ble';
+import {BleDeviceCard} from './src/components/BleDeviceCard';
+import BleManager from './src/services/BleManager';
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+export default function App() {
+  const [isScanning, setIsScanning] = useState(false);
+  const [devices, setDevices] = useState<Record<string, BleDevice>>({});
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+  useEffect(() => {
+    setupBle();
+    return () => {
+      BleManager.cleanup();
+    };
+  }, []);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+  const setupBle = async () => {
+    if (Platform.OS === 'android') {
+      const permissions: Permission[] = [];
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+      // Android 12 or higher
+      if (Platform.Version >= 31) {
+        permissions.push(
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN as Permission,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT as Permission,
+        );
+      } else {
+        permissions.push(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION as Permission,
+        );
+      }
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+      try {
+        const results = await Promise.all(
+          permissions.map(permission =>
+            PermissionsAndroid.request(permission, {
+              title: 'Bluetooth Permission',
+              message:
+                'This app needs access to Bluetooth to scan for devices.',
+              buttonPositive: 'Allow',
+            }),
+          ),
+        );
+
+        if (
+          results.some(result => result !== PermissionsAndroid.RESULTS.GRANTED)
+        ) {
+          console.log('Required permissions not granted');
+          return;
+        }
+      } catch (error) {
+        console.error('Error requesting permissions:', error);
+        return;
+      }
+    }
+
+    BleManager.onDeviceFound(device => {
+      setDevices(prev => ({
+        ...prev,
+        [device.id]: device,
+      }));
+    });
+
+    BleManager.onStateChange(isEnabled => {
+      console.log('Bluetooth state changed:', isEnabled);
+    });
   };
 
+  const toggleScan = async () => {
+    try {
+      if (isScanning) {
+        console.log('Stopping scan...');
+        await BleManager.stopScanning();
+      } else {
+        console.log('Starting scan...');
+        setDevices({});
+        await BleManager.startScanning();
+      }
+      setIsScanning(!isScanning);
+    } catch (error) {
+      console.error('Error toggling scan:', error);
+    }
+  };
+
+  // In the useEffect
+  useEffect(() => {
+    setupBle();
+    return () => {
+      console.log('Cleaning up BLE...');
+      BleManager.cleanup();
+    };
+  }, []);
+
   return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>BLE Scanner</Text>
+        <TouchableOpacity
+          style={[styles.button, isScanning && styles.buttonScanning]}
+          onPress={toggleScan}>
+          <Text style={styles.buttonText}>
+            {isScanning ? 'Stop Scan' : 'Start Scan'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.deviceList}>
+        {Object.values(devices).map(device => (
+          <BleDeviceCard key={device.id} device={device} />
+        ))}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  sectionTitle: {
+  header: {
+    padding: 16,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  title: {
     fontSize: 24,
-    fontWeight: '600',
+    fontWeight: 'bold',
+    marginBottom: 16,
   },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
+  button: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
-  highlight: {
-    fontWeight: '700',
+  buttonScanning: {
+    backgroundColor: '#f44336',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  deviceList: {
+    flex: 1,
+    padding: 16,
   },
 });
-
-export default App;
