@@ -2,6 +2,8 @@ import {NativeEventEmitter, NativeModules, Platform} from 'react-native';
 import {BleDevice} from '../types/ble';
 
 const {BleModule} = NativeModules;
+console.log('Available Native Modules:', Object.keys(NativeModules));
+console.log('BleModule:', BleModule);
 
 class BleManager {
   private eventEmitter: NativeEventEmitter;
@@ -9,6 +11,10 @@ class BleManager {
 
   constructor() {
     console.log('Initializing BLE Manager');
+    if (!BleModule) {
+      console.error('BleModule is not available');
+      throw new Error('BleModule is not available');
+    }
     this.eventEmitter = new NativeEventEmitter(BleModule);
   }
 
